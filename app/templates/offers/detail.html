@@ -8,7 +8,10 @@
         <h2 class="text-lg font-semibold">{{ offer.doc_name }}</h2>
         <div class="text-xs text-gray-500">Offer ID {{ offer.id }}</div>
       </div>
-      <a href="/offers" class="text-sm text-blue-600">Back to list</a>
+      <div class="flex items-center gap-4">
+        <a href="/offers/{{ offer.id }}/export.xlsx" class="text-sm bg-blue-600 text-white px-3 py-1 rounded">Export to Excel</a>
+        <a href="/offers" class="text-sm text-blue-600">Back to list</a>
+      </div>
     </div>
 
     {% if offer.pdf_filename %}

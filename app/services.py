@@ -9,6 +9,8 @@ import asyncio
 
 import pdfplumber
 from openai import AsyncOpenAI
+import io as _io
+import pandas as pd
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -430,3 +432,53 @@ async def ingest_from_pdf(
         "components": inserted_components,
         "variant_components": inserted_links,
     }
+
+
+async def export_offer_to_excel(offer_id: int, session: AsyncSession) -> bytes:
+    # Fetch data
+    groups = (await session.execute(select(ProdGroup).where(ProdGroup.offer_id == offer_id).order_by(ProdGroup.group_nr))).scalars().all()
+    group_ids = [g.id for g in groups]
+    variants = []
+    if group_ids:
+        variants = (await session.execute(select(ProdVariant).where(ProdVariant.group_id.in_(group_ids)).order_by(ProdVariant.var_nr))).scalars().all()
+    variant_ids = [v.id for v in variants]
+    links = []
+    if variant_ids:
+        links = (await session.execute(select(ProdVariantComponent).where(ProdVariantComponent.prod_variant_id.in_(variant_ids)))).scalars().all()
+    comp_ids = sorted({l.component_id for l in links})
+    components_by_id = {}
+    if comp_ids:
+        comps = (await session.execute(select(Component).where(Component.id.in_(comp_ids)))).scalars().all()
+        components_by_id = {c.id: c for c in comps}
+
+    # Build one flat table similar to the example (Typ, Ordnungszahl, Kurztext, Langtext, Menge, Einheit)
+    rows: list[dict[str, Any]] = []
+
+    def add_row(typ: str, ord_num: str | None, kurz: str | None, lang: str | None, menge: int | float | None = None, einheit: str | None = None):
+        rows.append({
+            "Typ": typ,
+            "Ordnungszahl": ord_num or "",
+            "Kurztext": kurz or "",
+            "Langtext": lang or "",
+            "Menge": menge,
+            "Einheit": einheit or "",
+        })
+
+    for g in groups:
+        add_row("Gruppe", g.group_nr or "", g.title, "")
+        # Variants under group
+        g_variants = [v for v in variants if v.group_id == g.id]
+        for v in g_variants:
+            add_row("Position", v.var_nr or "", v.short_text, v.long_text, 1, "St")
+            v_links = [l for l in links if l.prod_variant_id == v.id]
+            # Components as child rows
+            for idx, l in enumerate(v_links, start=1):
+                comp = components_by_id.get(l.component_id)
+                add_row("Komponente", f"{(v.var_nr or v.id)}.{idx:04d}", comp.description if comp else "", "", l.count or 1, "St")
+
+    df = pd.DataFrame(rows, columns=["Typ", "Ordnungszahl", "Kurztext", "Langtext", "Menge", "Einheit"])
+
+    buf = _io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="LV")
+    return buf.getvalue()

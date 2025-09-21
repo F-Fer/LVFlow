@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from ..db import get_db_session
-from ..services import ingest_from_json, ingest_from_pdf
+from ..services import ingest_from_json, ingest_from_pdf, export_offer_to_excel
 from ..models import Offer, ProdGroup, ProdVariant, ProdVariantComponent, Component
 from ..jobs import get_job
 
@@ -93,6 +93,20 @@ async def job_status_partial(job_id: str, request: Request) -> HTMLResponse:
     if not job:
         return HTMLResponse("", status_code=404)
     return templates.TemplateResponse("partials/job_status.html", {"request": request, "job": job})
+
+
+@router.get("/offers/{offer_id}/export.xlsx")
+async def export_offer_excel(offer_id: int, session: AsyncSession = Depends(get_db_session)):
+    data = await export_offer_to_excel(offer_id, session)
+    return StreamingResponse(
+        _iter_bytes(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=offer_{offer_id}.xlsx"},
+    )
+
+
+def _iter_bytes(data: bytes):
+    yield data
 
 
 @router.delete("/offers/{offer_id}", response_class=HTMLResponse)
