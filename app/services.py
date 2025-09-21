@@ -264,6 +264,8 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
         progress_cb("groups", 40, f"{len(groups)} groups")
 
     offer = await _get_or_create_offer(offer_name)
+    # Persist filename of stored PDF on the offer for later embedding
+    offer.pdf_filename = pdf_path.name
     # Persist the offer early so it survives if later steps fail
     await session.commit()
     if progress_cb:

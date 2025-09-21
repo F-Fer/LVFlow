@@ -12,6 +12,7 @@ class Offer(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     doc_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    pdf_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     groups: Mapped[list["ProdGroup"]] = relationship(back_populates="offer", cascade="all, delete-orphan")
 

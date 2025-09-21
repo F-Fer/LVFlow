@@ -11,6 +11,16 @@
       <a href="/offers" class="text-sm text-blue-600">Back to list</a>
     </div>
 
+    {% if offer.pdf_filename %}
+      <section class="bg-white border rounded p-4 mb-6">
+        <div class="font-medium mb-2">Source PDF</div>
+        <div class="w-full h-[70vh]">
+          <iframe src="/uploads/{{ offer.pdf_filename }}" class="w-full h-full border" title="Offer PDF"></iframe>
+        </div>
+        <div class="mt-2 text-xs"><a class="text-blue-600" href="/uploads/{{ offer.pdf_filename }}" target="_blank">Open PDF in new tab</a></div>
+      </section>
+    {% endif %}
+
     {% for section in detail %}
       <section class="bg-white border rounded p-4 mb-6">
         <div class="flex items-center justify-between mb-2">
