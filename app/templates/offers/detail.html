@@ -70,6 +70,18 @@
                   </tr>
                 {% endfor %}
               </tbody>
+              <tfoot>
+                <tr class="bg-gray-50 font-medium">
+                  <td class="border px-2 py-1 text-right">Total</td>
+                  {% for c in components %}
+                    {% set ns = namespace(total=0) %}
+                    {% for v in variants %}
+                      {% set ns.total = ns.total + (counts.get((v.id, c.id)) or 0) %}
+                    {% endfor %}
+                    <td class="border px-2 py-1 text-center">{{ ns.total }}</td>
+                  {% endfor %}
+                </tr>
+              </tfoot>
             </table>
           </div>
         {% else %}
