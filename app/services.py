@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Base, Component, Offer, ProdGroup, ProdVariant, ProdVariantComponent
+from .db import SessionLocal
 
 from .utils.extraction import get_group_extraction_prompt, get_variant_extraction_prompt, get_required_components_prompt
 
@@ -121,7 +122,13 @@ async def ingest_from_json(session: AsyncSession, offer_name: str, base_dir: str
         "variant_components": inserted_links,
     }
 
-async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: bytes, progress_cb=None) -> dict[str, int]:
+async def ingest_from_pdf(
+    session: AsyncSession,
+    offer_name: str,
+    pdf_bytes: bytes,
+    progress_cb=None,
+    num_concurrent_groups: int = 4,
+) -> dict[str, int]:
     """Extract structure from a PDF and persist via existing JSON ingestion.
 
     Steps (MVP):
@@ -272,85 +279,146 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
         progress_cb("offer", 30, f"Offer {offer.id} created")
     logger.info(f"Created offer {offer.id}")
 
-    inserted_groups = 0
-    inserted_variants = 0
-    inserted_components = 0
-    inserted_links = 0
+    # Concurrency: process groups in parallel using isolated DB sessions
+    sem = asyncio.Semaphore(max(1, num_concurrent_groups))
 
-    # 4-5) For each group, extract variants and components and upsert
-    for idx, g in enumerate(groups, start=1):
-        group_nr = g.get("group_no")
-        title = g.get("title") or ""
-        g_from = g.get("page_from")
-        g_to = g.get("page_to")
-        group_obj = await _upsert_group(offer.id, group_nr, title, g_from, g_to)
-        inserted_groups += 1
-        if progress_cb:
-            progress_cb("group_upsert", 45, f"Group {idx}/{len(groups)}")
-        logger.info(f"Upserted group {group_obj.id}")
+    async def process_one(idx: int, g: dict[str, Any]) -> dict[str, int]:
+        async with sem:
+            # New session per group to avoid cross-task state
+            async with SessionLocal() as s:
+                # Upsert group in this session
+                group_nr = g.get("group_no")
+                title = g.get("title") or ""
+                g_from = g.get("page_from")
+                g_to = g.get("page_to")
 
-        # Text slice for group
-        start_idx = max(0, page_offset + (g_from or 1) - 1)
-        end_idx = page_offset + (g_to or (g_from or 1)) + 1
-        group_text = "\n".join(texts[start_idx:end_idx])
+                # Query existing
+                stmt = select(ProdGroup).where(ProdGroup.offer_id == offer.id)
+                stmt = stmt.where(ProdGroup.group_nr == group_nr) if group_nr is not None else stmt.where(ProdGroup.group_nr.is_(None))
+                existing = await s.scalar(stmt)
+                if existing:
+                    existing.title = title
+                    existing.page_from = g_from
+                    existing.page_to = g_to
+                    group_obj = existing
+                else:
+                    group_obj = ProdGroup(offer_id=offer.id, group_nr=group_nr, title=title, page_from=g_from, page_to=g_to)
+                    s.add(group_obj)
+                    await s.flush()
 
-        # Variants
-        v_prompt = get_variant_extraction_prompt(group_nr or "", title) + "\n\nInput:\n" + group_text
-        v_resp = await client.responses.create(model="gpt-5", input=v_prompt)
-        variants_payload = _safe_json(v_resp.output_text)
-        variants = variants_payload.get("variants", [])
-        logger.info(f"Extracted {len(variants)} product variants")
-        if progress_cb:
-            progress_cb("variants", 60, f"{len(variants)} variants in group {idx}")
+                if progress_cb:
+                    progress_cb("group_upsert", 45, f"Group {idx}/{len(groups)}")
+                logger.info(f"Upserted group {group_obj.id}")
+                await s.commit()
 
-        variant_nos: list[str] = []
-        variant_titles: list[str] = []
-        variant_texts: list[str] = []
-        variant_nr_to_id: dict[str, int] = {}
+                # Slice text for this group
+                start_idx = max(0, page_offset + (g_from or 1) - 1)
+                end_idx = page_offset + (g_to or (g_from or 1)) + 1
+                group_text = "\n".join(texts[start_idx:end_idx])
 
-        for v in variants:
-            var_nr = v.get("variant_no")
-            short_text = v.get("title") or ""
-            long_text = v.get("text")
-            v_from = v.get("page_from")
-            v_to = v.get("page_to")
-            pv = await _upsert_variant(group_obj.id, var_nr, short_text, long_text, v_from, v_to)
-            inserted_variants += 1
-            logger.info(f"Upserted variant {pv.id}")
-            if var_nr:
-                variant_nos.append(var_nr)
-                variant_titles.append(short_text)
-                variant_texts.append(long_text or "")
-                variant_nr_to_id[var_nr] = pv.id
+                # Variants extraction
+                v_prompt = get_variant_extraction_prompt(group_nr or "", title) + "\n\nInput:\n" + group_text
+                v_resp = await client.responses.create(model="gpt-5", input=v_prompt)
+                variants_payload = _safe_json(v_resp.output_text)
+                variants = variants_payload.get("variants", [])
+                if progress_cb:
+                    progress_cb("variants", 60, f"{len(variants)} variants in group {idx}")
+                logger.info(f"Extracted {len(variants)} product variants")
 
-        # Components
-        if variant_nos:
-            c_prompt = get_required_components_prompt(group_nr or "", title, variant_nos, variant_titles, variant_texts)
-            c_resp = await client.responses.create(model="gpt-5", input=c_prompt)
-            comps_payload = _safe_json(c_resp.output_text)
-            logger.info(f"Extracted {len(comps_payload.get('components', []))} required components")
-            for comp in comps_payload.get("components", []):
-                description = str(comp.get("component_description", "")).strip()
-                if not description:
-                    continue
-                comp_obj = await _get_or_create_component(description)
-                inserted_components += 1
-                for vno in comp.get("variant_nos", []) or []:
-                    vid = variant_nr_to_id.get(vno)
-                    if not vid:
-                        continue
-                    await _link_variant_component(vid, comp_obj.id)
-                    inserted_links += 1
-                    logger.info(f"Linked variant {vid} to component {comp_obj.id}")
-        if progress_cb:
-            progress_cb("components", 80, f"Components linked for group {idx}")
+                variant_nos: list[str] = []
+                variant_titles: list[str] = []
+                variant_texts: list[str] = []
+                variant_nr_to_id: dict[str, int] = {}
+                inserted_variants_local = 0
+                for v in variants:
+                    var_nr = v.get("variant_no")
+                    short_text = v.get("title") or ""
+                    long_text = v.get("text")
+                    v_from = v.get("page_from")
+                    v_to = v.get("page_to")
 
-        # Persist incrementally so progress is visible in DB even if later steps fail
-        await session.commit()
-        if progress_cb:
-            progress_cb("commit_group", min(94, 80 + int(14 * idx / max(1, len(groups)))), f"Committed group {idx}")
+                    # Upsert variant in s
+                    stmt_v = select(ProdVariant).where(ProdVariant.group_id == group_obj.id)
+                    stmt_v = stmt_v.where(ProdVariant.var_nr == var_nr) if var_nr is not None else stmt_v.where(ProdVariant.var_nr.is_(None))
+                    existing_v = await s.scalar(stmt_v)
+                    if existing_v:
+                        existing_v.short_text = short_text
+                        existing_v.long_text = long_text
+                        existing_v.page_from = v_from
+                        existing_v.page_to = v_to
+                        pv = existing_v
+                    else:
+                        pv = ProdVariant(group_id=group_obj.id, var_nr=var_nr, short_text=short_text, long_text=long_text, page_from=v_from, page_to=v_to)
+                        s.add(pv)
+                        await s.flush()
+                    inserted_variants_local += 1
+                    if var_nr:
+                        variant_nos.append(var_nr)
+                        variant_titles.append(short_text)
+                        variant_texts.append(long_text or "")
+                        variant_nr_to_id[var_nr] = pv.id
+                await s.commit()
 
-    # Final commit (mostly no-ops due to per-group commits)
+                # Components
+                inserted_components_local = 0
+                inserted_links_local = 0
+                if variant_nos:
+                    c_prompt = get_required_components_prompt(group_nr or "", title, variant_nos, variant_titles, variant_texts)
+                    c_resp = await client.responses.create(model="gpt-5", input=c_prompt)
+                    comps_payload = _safe_json(c_resp.output_text)
+                    comps = comps_payload.get("components", [])
+                    logger.info(f"Extracted {len(comps)} required components")
+                    for comp in comps:
+                        description = str(comp.get("component_description", "")).strip()
+                        if not description:
+                            continue
+                        # get or create component
+                        existing_c = await s.scalar(select(Component).where(Component.description == description))
+                        if existing_c:
+                            comp_obj = existing_c
+                        else:
+                            comp_obj = Component(description=description)
+                            s.add(comp_obj)
+                            await s.flush()
+                        inserted_components_local += 1
+                        for vno in comp.get("variant_nos", []) or []:
+                            vid = variant_nr_to_id.get(vno)
+                            if not vid:
+                                continue
+                            exists_link = await s.scalar(
+                                select(ProdVariantComponent).where(
+                                    ProdVariantComponent.prod_variant_id == vid,
+                                    ProdVariantComponent.component_id == comp_obj.id,
+                                )
+                            )
+                            if not exists_link:
+                                s.add(ProdVariantComponent(prod_variant_id=vid, component_id=comp_obj.id))
+                                inserted_links_local += 1
+                if progress_cb:
+                    progress_cb("components", 80, f"Components linked for group {idx}")
+                await s.commit()
+                if progress_cb:
+                    progress_cb("commit_group", 90, f"Committed group {idx}")
+
+                return {
+                    "groups": 1,
+                    "variants": inserted_variants_local,
+                    "components": inserted_components_local,
+                    "variant_components": inserted_links_local,
+                }
+
+    tasks = [process_one(idx, g) for idx, g in enumerate(groups, start=1)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    inserted_groups = inserted_variants = inserted_components = inserted_links = 0
+    for r in results:
+        if isinstance(r, Exception):
+            logger.exception("Group task failed", exc_info=r)
+            continue
+        inserted_groups += r.get("groups", 0)
+        inserted_variants += r.get("variants", 0)
+        inserted_components += r.get("components", 0)
+        inserted_links += r.get("variant_components", 0)
+
     await session.commit()
     if progress_cb:
         progress_cb("commit", 95, "Committed to DB")
