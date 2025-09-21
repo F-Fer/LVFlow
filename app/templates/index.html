@@ -1,20 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="bg-white border rounded p-4">
-    <h2 class="font-medium text-lg mb-2">Ingest extracted JSON</h2>
-    <p class="text-sm text-gray-600 mb-4">Reads files from <code>data/</code> and inserts into Postgres.</p>
-
-    <form hx-post="/ingest" hx-target="#ingest-result" hx-swap="innerHTML" class="flex gap-2 items-end">
-      <div>
-        <label class="block text-sm text-gray-700">Offer name</label>
-        <input type="text" name="offer_name" value="DKFZ Labortechnik" required class="border rounded px-3 py-2 w-80" />
-      </div>
-      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Run import</button>
-    </form>
-
-    <div id="ingest-result" class="mt-4"></div>
-  </section>
-
   <section class="bg-white border rounded p-4 mt-6">
     <h2 class="font-medium text-lg mb-2">Upload PDF (WIP)</h2>
     <p class="text-sm text-gray-600 mb-4">Uploads a PDF and stores it for extraction. Next step will parse and ingest.</p>
