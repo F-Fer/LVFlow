@@ -44,16 +44,24 @@
                 <tr class="bg-gray-50">
                   <th class="border px-2 py-1 text-left">Variant</th>
                   {% for c in components %}
-                    <th class="border px-2 py-1 text-left">{{ c.description|truncate(40) }}</th>
+                    <th class="border px-2 py-1 text-left" x-data="{open:false}">
+                      <div x-show="!open" class="truncate max-w-[14rem]">{{ c.description }}</div>
+                      <div x-show="open" class="whitespace-pre-wrap">{{ c.description }}</div>
+                      <button type="button" class="text-[11px] text-blue-600 mt-1" @click="open=!open" x-text="open ? 'Less' : 'More'"></button>
+                    </th>
                   {% endfor %}
                 </tr>
               </thead>
               <tbody>
                 {% for v in variants %}
                   <tr>
-                    <td class="border px-2 py-1 whitespace-nowrap">
-                      <div class="font-medium">{{ v.var_nr or '-' }} — {{ v.short_text }}</div>
-                      {% if v.long_text %}<div class="text-xs text-gray-500">{{ v.long_text|truncate(120) }}</div>{% endif %}
+                    <td class="border px-2 py-1" x-data="{open:false}">
+                      <div class="font-medium whitespace-nowrap">{{ v.var_nr or '-' }} — {{ v.short_text }}</div>
+                      {% if v.long_text %}
+                        <div x-show="!open" class="text-xs text-gray-500">{{ v.long_text|truncate(120) }}</div>
+                        <div x-show="open" class="text-xs text-gray-700 whitespace-pre-wrap">{{ v.long_text }}</div>
+                        <button type="button" class="text-[11px] text-blue-600 mt-1" @click="open=!open" x-text="open ? 'Less' : 'More'"></button>
+                      {% endif %}
                     </td>
                     {% for c in components %}
                       {% set k = (v.id, c.id) %}
