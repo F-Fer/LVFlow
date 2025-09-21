@@ -1,10 +1,14 @@
 from pathlib import Path
 from typing import Any
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Base, Component, Offer, ProdGroup, ProdVariant, ProdVariantComponent
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 async def init_db(session: AsyncSession) -> None:
@@ -107,3 +111,26 @@ async def ingest_from_json(session: AsyncSession, offer_name: str, base_dir: str
         "variant_components": inserted_links,
     }
 
+async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: bytes) -> dict[str, int]:
+    """Placeholder: accept uploaded PDF bytes and return counts after future extraction.
+
+    For now, this simply writes the PDF to a temporary file under ./data/uploads
+    so we can iterate on extraction next.
+    """
+    upload_dir = Path("data/uploads")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Writing PDF to {upload_dir}")
+    tmp_path = upload_dir / f"{offer_name.replace(' ', '_')}.pdf"
+    tmp_path.write_bytes(pdf_bytes)
+    logger.info(f"PDF written to {tmp_path}")
+
+    # TODO: implement extraction -> JSON objects -> reuse ingest_from_json logic
+    # For the MVP, we can route to existing JSON-based ingestion after the
+    # extraction step is implemented.
+    return {
+        "offers": 0,
+        "groups": 0,
+        "variants": 0,
+        "components": 0,
+        "variant_components": 0,
+    }

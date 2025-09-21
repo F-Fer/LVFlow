@@ -14,5 +14,24 @@
 
     <div id="ingest-result" class="mt-4"></div>
   </section>
+
+  <section class="bg-white border rounded p-4 mt-6">
+    <h2 class="font-medium text-lg mb-2">Upload PDF (WIP)</h2>
+    <p class="text-sm text-gray-600 mb-4">Uploads a PDF and stores it for extraction. Next step will parse and ingest.</p>
+
+    <form action="/upload" method="post" hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#upload-result" hx-swap="innerHTML" enctype="multipart/form-data" class="flex gap-2 items-end">
+      <div>
+        <label class="block text-sm text-gray-700">Offer name</label>
+        <input type="text" name="offer_name" value="DKFZ Labortechnik" required class="border rounded px-3 py-2 w-80" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700">PDF file</label>
+        <input type="file" name="file" accept="application/pdf" required class="border rounded px-3 py-2" />
+      </div>
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Upload</button>
+    </form>
+
+    <div id="upload-result" class="mt-4"></div>
+  </section>
 {% endblock %}
 
