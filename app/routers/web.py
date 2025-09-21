@@ -85,3 +85,13 @@ async def offer_detail(offer_id: int, request: Request, session: AsyncSession = 
 
     return templates.TemplateResponse("offers/detail.html", {"request": request, "offer": offer, "detail": detail})
 
+
+@router.delete("/offers/{offer_id}", response_class=HTMLResponse)
+async def offer_delete(offer_id: int, request: Request, session: AsyncSession = Depends(get_db_session)) -> HTMLResponse:
+    offer = await session.get(Offer, offer_id)
+    if offer:
+        await session.delete(offer)
+        await session.commit()
+    # For HTMX: return empty content and swap out the target li
+    return HTMLResponse(content="")
+
