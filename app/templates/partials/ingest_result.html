@@ -1,0 +1,16 @@
+{% if inserted %}
+<div class="rounded border p-3 bg-green-50 text-green-900">
+  <div class="font-medium mb-1">Import complete</div>
+  <ul class="text-sm grid grid-cols-2 gap-x-6">
+    <li>Offers: <strong>{{ inserted.offers }}</strong></li>
+    <li>Groups: <strong>{{ inserted.groups }}</strong></li>
+    <li>Variants: <strong>{{ inserted.variants }}</strong></li>
+    <li>Components: <strong>{{ inserted.components }}</strong></li>
+    <li>Links: <strong>{{ inserted.variant_components }}</strong></li>
+  </ul>
+  <div class="text-xs text-gray-600 mt-2">Check results in pgAdmin (Tables under public schema).</div>
+  </div>
+{% else %}
+  <div class="rounded border p-3 bg-yellow-50 text-yellow-900">No data imported.</div>
+{% endif %}
+

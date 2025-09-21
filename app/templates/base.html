@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LVFlow</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-0LkEJj1jX8m+Qn6a3QgD5iGmF1rVfJ8u4l6qZ6N3kzQq0Eo7sJq7nL1xJvVf1q7w" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script>
+      document.addEventListener('htmx:configRequest', (evt) => {
+        evt.detail.headers['X-Requested-With'] = 'XMLHttpRequest';
+      });
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-gray-50 text-gray-900">
+    <header class="border-b bg-white">
+      <div class="max-w-5xl mx-auto py-4 px-4 flex items-center justify-between">
+        <h1 class="text-xl font-semibold">LVFlow</h1>
+        <nav class="text-sm text-gray-600">MVP</nav>
+      </div>
+    </header>
+    <main class="max-w-5xl mx-auto p-4">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+  </html>
+

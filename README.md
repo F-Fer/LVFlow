@@ -48,6 +48,12 @@ curl -X POST http://localhost:8000/ingest/init-db
 curl -X POST "http://localhost:8000/ingest/from-json?offer_name=DKFZ%20Labortechnik"
 ```
 
+## Frontend (SSR + HTMX)
+
+- Root page: http://localhost:8000/ renders a simple form to trigger ingestion and shows results inline via HTMX.
+- Tech: Jinja2 templates, HTMX for partial updates, Tailwind via CDN.
+- Templates live in `app/templates/`.
+
 ## API Endpoints
 
 ### Health
