@@ -1,0 +1,16 @@
+{% set pct = (job.progress or 0) %}
+<div id="job-status"
+     data-job-id="{{ job.id }}"
+     class="mt-4"
+     hx-get="/ingest/jobs/{{ job.id }}"
+     hx-trigger="every 1s"
+     hx-swap="outerHTML">
+  <div class="text-sm text-gray-700">Status: {{ job.status }} — {{ job.stage }} {{ job.message }}</div>
+  <div class="w-full bg-gray-200 rounded h-2 mt-2">
+    <div class="bg-blue-600 h-2 rounded" x-data x-init="$el.style.width='{{ pct|int }}%'"></div>
+  </div>
+  {% if job.status in ['completed', 'failed'] %}
+    <div class="text-xs text-gray-500 mt-1">Job {{ job.id }}</div>
+  {% endif %}
+</div>
+

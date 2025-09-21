@@ -7,6 +7,7 @@ from sqlalchemy import select
 from ..db import get_db_session
 from ..services import ingest_from_json, ingest_from_pdf
 from ..models import Offer, ProdGroup, ProdVariant, ProdVariantComponent, Component
+from ..jobs import get_job
 
 
 router = APIRouter()
@@ -84,6 +85,14 @@ async def offer_detail(offer_id: int, request: Request, session: AsyncSession = 
         })
 
     return templates.TemplateResponse("offers/detail.html", {"request": request, "offer": offer, "detail": detail})
+
+
+@router.get("/ingest/jobs/{job_id}", response_class=HTMLResponse)
+async def job_status_partial(job_id: str, request: Request) -> HTMLResponse:
+    job = get_job(job_id)
+    if not job:
+        return HTMLResponse("", status_code=404)
+    return templates.TemplateResponse("partials/job_status.html", {"request": request, "job": job})
 
 
 @router.delete("/offers/{offer_id}", response_class=HTMLResponse)

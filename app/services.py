@@ -5,9 +5,10 @@ import os
 import io
 import json
 import dotenv
+import asyncio
 
 import pdfplumber
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,7 +121,7 @@ async def ingest_from_json(session: AsyncSession, offer_name: str, base_dir: str
         "variant_components": inserted_links,
     }
 
-async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: bytes) -> dict[str, int]:
+async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: bytes, progress_cb=None) -> dict[str, int]:
     """Extract structure from a PDF and persist via existing JSON ingestion.
 
     Steps (MVP):
@@ -136,18 +137,27 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
     upload_dir = Path("data/uploads")
     upload_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = upload_dir / f"{offer_name.replace(' ', '_')}.pdf"
-    pdf_path.write_bytes(pdf_bytes)
+    # Offload sync file write to a thread
+    await asyncio.to_thread(pdf_path.write_bytes, pdf_bytes)
     logger.info(f"Saved uploaded PDF to {pdf_path}")
+    if progress_cb:
+        progress_cb("save_pdf", 5, "PDF saved")
 
     # 2) Extract texts per page
-    texts: list[str] = []
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text() or ""
-            if page_text.strip():
-                texts.append(page_text)
+    def _extract_texts(data: bytes) -> list[str]:
+        texts_local: list[str] = []
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    texts_local.append(page_text)
+        return texts_local
+
+    texts: list[str] = await asyncio.to_thread(_extract_texts, pdf_bytes)
 
     full_text = "\n".join(texts)
+    if progress_cb:
+        progress_cb("extract_text", 15, f"Extracted {len(texts)} pages")
     logger.info(f"Extracted {len(texts)} pages of text from PDF")
 
     # 2a) Page offset (if needed later for variants)
@@ -158,14 +168,15 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
             page_offset = i
             break
     logger.info(f"Detected page_offset={page_offset}")
+    if progress_cb:
+        progress_cb("detect_offset", 20, f"Page offset {page_offset}")
 
     # Setup OpenAI client
     api_key = os.getenv("OPENAI_API_KEY")
-    print(f"API key: {api_key}")
-    if not api_key:
+    if not api_key or api_key == "":
         raise RuntimeError("OPENAI_API_KEY is not set")
 
-    client = OpenAI(api_key=api_key)
+    client = AsyncOpenAI(api_key=api_key)
     logger.info("Setup OpenAI client")
 
     # Utilities
@@ -245,12 +256,18 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
 
     # 3) Extract product groups
     group_prompt = get_group_extraction_prompt(full_text)
-    g_resp = client.responses.create(model="gpt-5", input=group_prompt)
+    g_resp = await client.responses.create(model="gpt-5", input=group_prompt)
     groups_payload = _safe_json(g_resp.output_text)
     groups = groups_payload.get("groups", [])
     logger.info(f"Extracted {len(groups)} product groups")
+    if progress_cb:
+        progress_cb("groups", 40, f"{len(groups)} groups")
 
     offer = await _get_or_create_offer(offer_name)
+    # Persist the offer early so it survives if later steps fail
+    await session.commit()
+    if progress_cb:
+        progress_cb("offer", 30, f"Offer {offer.id} created")
     logger.info(f"Created offer {offer.id}")
 
     inserted_groups = 0
@@ -259,13 +276,15 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
     inserted_links = 0
 
     # 4-5) For each group, extract variants and components and upsert
-    for g in groups:
+    for idx, g in enumerate(groups, start=1):
         group_nr = g.get("group_no")
         title = g.get("title") or ""
         g_from = g.get("page_from")
         g_to = g.get("page_to")
         group_obj = await _upsert_group(offer.id, group_nr, title, g_from, g_to)
         inserted_groups += 1
+        if progress_cb:
+            progress_cb("group_upsert", 45, f"Group {idx}/{len(groups)}")
         logger.info(f"Upserted group {group_obj.id}")
 
         # Text slice for group
@@ -275,10 +294,12 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
 
         # Variants
         v_prompt = get_variant_extraction_prompt(group_nr or "", title) + "\n\nInput:\n" + group_text
-        v_resp = client.responses.create(model="gpt-5", input=v_prompt)
+        v_resp = await client.responses.create(model="gpt-5", input=v_prompt)
         variants_payload = _safe_json(v_resp.output_text)
         variants = variants_payload.get("variants", [])
         logger.info(f"Extracted {len(variants)} product variants")
+        if progress_cb:
+            progress_cb("variants", 60, f"{len(variants)} variants in group {idx}")
 
         variant_nos: list[str] = []
         variant_titles: list[str] = []
@@ -303,7 +324,7 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
         # Components
         if variant_nos:
             c_prompt = get_required_components_prompt(group_nr or "", title, variant_nos, variant_titles, variant_texts)
-            c_resp = client.responses.create(model="gpt-5", input=c_prompt)
+            c_resp = await client.responses.create(model="gpt-5", input=c_prompt)
             comps_payload = _safe_json(c_resp.output_text)
             logger.info(f"Extracted {len(comps_payload.get('components', []))} required components")
             for comp in comps_payload.get("components", []):
@@ -319,8 +340,18 @@ async def ingest_from_pdf(session: AsyncSession, offer_name: str, pdf_bytes: byt
                     await _link_variant_component(vid, comp_obj.id)
                     inserted_links += 1
                     logger.info(f"Linked variant {vid} to component {comp_obj.id}")
+        if progress_cb:
+            progress_cb("components", 80, f"Components linked for group {idx}")
 
+        # Persist incrementally so progress is visible in DB even if later steps fail
+        await session.commit()
+        if progress_cb:
+            progress_cb("commit_group", min(94, 80 + int(14 * idx / max(1, len(groups)))), f"Committed group {idx}")
+
+    # Final commit (mostly no-ops due to per-group commits)
     await session.commit()
+    if progress_cb:
+        progress_cb("commit", 95, "Committed to DB")
 
     return {
         "offers": 1,

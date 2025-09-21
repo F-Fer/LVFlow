@@ -19,7 +19,7 @@
     <h2 class="font-medium text-lg mb-2">Upload PDF (WIP)</h2>
     <p class="text-sm text-gray-600 mb-4">Uploads a PDF and stores it for extraction. Next step will parse and ingest.</p>
 
-    <form action="/upload" method="post" hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#upload-result" hx-swap="innerHTML" enctype="multipart/form-data" class="flex gap-2 items-end">
+    <form action="/ingest/from-pdf" method="post" hx-post="/ingest/from-pdf" hx-encoding="multipart/form-data" hx-swap="none" enctype="multipart/form-data" class="flex gap-2 items-end" hx-on::after-request="if(event.detail.successful){ try { const r=JSON.parse(event.detail.xhr.responseText); const el=document.getElementById('job-status'); el.setAttribute('hx-get', `/ingest/jobs/${r.job_id}`); el.setAttribute('hx-trigger','load, every 1s'); el.setAttribute('hx-swap','outerHTML'); htmx.process(el); } catch(e){} }">
       <div>
         <label class="block text-sm text-gray-700">Offer name</label>
         <input type="text" name="offer_name" value="DKFZ Labortechnik" required class="border rounded px-3 py-2 w-80" />
@@ -32,6 +32,9 @@
     </form>
 
     <div id="upload-result" class="mt-4"></div>
+    <div id="job-status">
+      <!-- will be replaced dynamically -->
+    </div>
   </section>
 {% endblock %}
 
