@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+  {% if not offer %}
+    <div class="bg-white border rounded p-4">Offer not found.</div>
+  {% else %}
+    <div class="mb-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-semibold">{{ offer.doc_name }}</h2>
+        <div class="text-xs text-gray-500">Offer ID {{ offer.id }}</div>
+      </div>
+      <a href="/offers" class="text-sm text-blue-600">Back to list</a>
+    </div>
+
+    {% for section in detail %}
+      <section class="bg-white border rounded p-4 mb-6">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <div class="font-medium">Group {{ section.group.group_nr or '-' }} — {{ section.group.title }}</div>
+            <div class="text-xs text-gray-500">Pages {{ section.group.page_from }}–{{ section.group.page_to }}</div>
+          </div>
+        </div>
+
+        {% set variants = section.variants %}
+        {% set components = section.components %}
+        {% set counts = section.counts %}
+
+        {% if variants and components %}
+          <div class="overflow-auto">
+            <table class="min-w-full border text-sm">
+              <thead>
+                <tr class="bg-gray-50">
+                  <th class="border px-2 py-1 text-left">Variant</th>
+                  {% for c in components %}
+                    <th class="border px-2 py-1 text-left">{{ c.description|truncate(40) }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for v in variants %}
+                  <tr>
+                    <td class="border px-2 py-1 whitespace-nowrap">
+                      <div class="font-medium">{{ v.var_nr or '-' }} — {{ v.short_text }}</div>
+                      {% if v.long_text %}<div class="text-xs text-gray-500">{{ v.long_text|truncate(120) }}</div>{% endif %}
+                    </td>
+                    {% for c in components %}
+                      {% set k = (v.id, c.id) %}
+                      <td class="border px-2 py-1 text-center">{{ counts.get(k) or 0 }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-gray-600">No variants/components captured.</div>
+        {% endif %}
+      </section>
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+

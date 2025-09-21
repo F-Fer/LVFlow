@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="bg-white border rounded p-4">
+    <h2 class="font-medium text-lg mb-3">Documents</h2>
+    {% if offers %}
+      <ul class="divide-y">
+        {% for o in offers %}
+          <li class="py-2 flex items-center justify-between">
+            <div>
+              <div class="font-medium">{{ o.doc_name }}</div>
+              <div class="text-xs text-gray-500">ID {{ o.id }}</div>
+            </div>
+            <a class="text-blue-600 hover:underline" href="/offers/{{ o.id }}">View</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="text-gray-600">No documents yet. Upload a PDF or ingest JSON first.</div>
+    {% endif %}
+  </section>
+{% endblock %}
+
