@@ -1,6 +1,6 @@
-# LVFlow MVP – FastAPI + Postgres (local)
+# LVFlow MVP – Making Tendering Smarter
 
-Automating the tendering process.
+![LVFlow image](/images/lvflow.jpg)
 
 ## Quickstart
 
